@@ -4,6 +4,7 @@
 #include <RadioLib.h>
 #include <U8g2lib.h>
 #include <WiFi.h>
+#include <ArduinoJson.h>
 #include "ThingSpeak.h"
 
 //Define a pinagem da tela OLED
@@ -22,46 +23,57 @@
 #define LoRa_nrst 12
 #define LoRa_busy 13
 
-//ThingSpeak
+//WiFi
 const char* ssid = "GAYA";          // your network SSID (name)
 const char* password = "06042004";  // your network password
 
 WiFiClient client;
 
+//ThingSpeak
 unsigned long myChannelNumber = 1;
-const char* myWriteAPIKey = "04Z5NQ9HWF5YAKP6";
+const char* myWriteAPIKey = "NC5WVTK4C9TY2YOJ";
 
+unsigned long lastTime = 0;
+unsigned long timerDelay = 20000;
+
+//ArduinoJson
+DynamicJsonDocument doc(2048);
 
 // Define o radio
 SX1262 radio = new Module(LoRa_nss, LoRa_dio1, LoRa_nrst, LoRa_busy);
 
 //Define o OLED
-U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2(U8G2_R0, /* clock=*/oled_scl, /* data=*/oled_sda, /* reset=*/oled_rst);
+U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2(U8G2_R0, oled_scl, oled_sda, oled_rst);
 
 //Conexao InfoData
 int rssi = 0;
 float snr = 0;
-float dataRata = 0;
 String packSize = "--";
+bool flagReceive = false;
 
 //Troca tela
 int countSwap = 0;
 int ind = 0;
 char swap = 'a';
 const char charSel[] = { 'a', 'b', 'c' };
-unsigned long lastTime = 0;
-unsigned long timerDelay = 20000;
+
 
 /* Protótipo da função */
 void LoRaDataRSSI();
 void LoRaDataSNR();
 void LoRaDataRate();
 void cbk(int packetSize);
+void setFlag();
 
 /*
   Nome da função: LoRaDataRSSI
   objetivo: imprime a RSSI/Potencia do sinal e tamanho do pacote recebido no display.
 */
+
+void setFlag(){
+  flagReceive = true;
+}
+
 void LoRaDataRSSI() {
 
   u8g2.firstPage();
@@ -98,11 +110,6 @@ void LoRaDataSNR() {
 }
 
 /*
-  Nome da função: LoRaDataRate
-  objetivo: imprime a Velocidade do sinal e tamanho do pacote recebido no display.
-*/
-
-/*
   Nome da função: cbk
   recebe como parâmetos um inteiros (packetSize)
   objetivo: recebe a temperatura via LoRa e armazena na variável packet.
@@ -111,8 +118,18 @@ void cbk(int packetSize, String dat) {
   packSize = String(packetSize, DEC);
   rssi = radio.getRSSI();
   snr = radio.getSNR();
-  dataRata = radio.getDataRate();
-  int contPer = dat.toInt();
+  //Serial.println(dat);
+  deserializeJson(doc, dat);
+  String eixoX = doc["EixoX"];
+  String eixoY = doc["EixoY"];
+  String eixoZ = doc["EixoZ"];
+  String alarm = doc["Alarme"];
+
+  int eixoXI = eixoX.toInt();
+  int eixoYI = eixoY.toInt();
+  int eixoZI = eixoZ.toInt();
+  int alarmI = alarm.toInt();
+  //serializeJson(doc,Serial);
 
   //Logica para seleção da tela de informação
   countSwap++;
@@ -137,7 +154,13 @@ void cbk(int packetSize, String dat) {
   }
 
   if ((millis() - lastTime) > timerDelay) {
-    int x = ThingSpeak.writeField(myChannelNumber, 1, dat, myWriteAPIKey);
+
+    ThingSpeak.setField(1, eixoXI);
+    ThingSpeak.setField(2, eixoYI);
+    ThingSpeak.setField(3, eixoZI);
+    ThingSpeak.setField(4, alarmI);
+
+    int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
 
     if (x == 200) {
       Serial.println("Channel update successful.");
@@ -145,6 +168,8 @@ void cbk(int packetSize, String dat) {
       Serial.println("Problem updating channel. HTTP error code " + String(x));
     }
     lastTime = millis();
+
+
   }
 }
 
@@ -174,31 +199,10 @@ void setup() {
   ThingSpeak.begin(client);  // Initialize ThingSpeak
 
   radio.begin();  // Habilita o rádio LoRa para receber dados
-}
 
-/******************* função em loop (loop) *********************/
-void loop() {
-  delay(1);
-  String str;
-  int state = radio.receive(str);
-  int packetSize = radio.getPacketLength();
+  int state = radio.startReceive();
 
-  // Connect or reconnect to WiFi
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Attempting to connect");
-    while (WiFi.status() != WL_CONNECTED) {
-      WiFi.begin(ssid, password);
-      delay(10000);
-    }
-    Serial.println("\nConnected.");
-  }
-
-  if (state == RADIOLIB_ERR_NONE) {  //Verifica se há dados chegando via LoRa
-    cbk(packetSize, str);            // Espera 500 milissegundos
-    Serial.println("Recebendo!");
-  }
-  //teste de timeout na conexão
-  else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
+  if (state == RADIOLIB_ERR_RX_TIMEOUT) {
 
     u8g2.firstPage();
     do {
@@ -210,6 +214,37 @@ void loop() {
       u8g2.print("Esperando resposta...");
     } while (u8g2.nextPage());
 
-    Serial.print("Perda na conexão");
+    Serial.println("Perda na conexão");
+    while(state == RADIOLIB_ERR_RX_TIMEOUT);
+  }
+
+  radio.setDio1Action(setFlag);
+
+}
+
+/******************* função em loop (loop) *********************/
+void loop() {
+  delay(1);
+
+  // Connect or reconnect to WiFi
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Attempting to connect");
+    while (WiFi.status() != WL_CONNECTED) {
+      WiFi.begin(ssid, password);
+      delay(10000);
+    }
+    Serial.println("\nConnected.");
+  }
+
+  if (flagReceive) {  //Verifica se há dados chegando via LoRa
+    flagReceive = false;
+
+    String str;
+    int packetSize;
+
+    radio.readData(str, packetSize);
+
+    cbk(packetSize, str);            // Espera 500 milissegundos
+    Serial.println("Recebendo!");
   }
 }
