@@ -124,11 +124,13 @@ void cbk(int packetSize, String dat) {
   String eixoY = doc["EixoY"];
   String eixoZ = doc["EixoZ"];
   String alarm = doc["Alarme"];
+  String packetS = doc["Packet"];
 
   int eixoXI = eixoX.toInt();
   int eixoYI = eixoY.toInt();
   int eixoZI = eixoZ.toInt();
   int alarmI = alarm.toInt();
+  int packetSI = packetS.toInt();
   //serializeJson(doc,Serial);
 
   //Logica para seleção da tela de informação
@@ -159,6 +161,9 @@ void cbk(int packetSize, String dat) {
     ThingSpeak.setField(2, eixoYI);
     ThingSpeak.setField(3, eixoZI);
     ThingSpeak.setField(4, alarmI);
+    ThingSpeak.setField(5, packetSI);
+    ThingSpeak.setField(6, rssi);
+    ThingSpeak.setField(7, snr);
 
     int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
 
