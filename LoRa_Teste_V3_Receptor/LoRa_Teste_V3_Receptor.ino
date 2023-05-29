@@ -24,8 +24,8 @@
 #define LoRa_busy 13
 
 //WiFi
-const char* ssid = "GAYA";          // your network SSID (name)
-const char* password = "06042004";  // your network password
+const char* ssid = "lucas";          // your network SSID (name)
+const char* password = "tuezinho";  // your network password
 
 WiFiClient client;
 
